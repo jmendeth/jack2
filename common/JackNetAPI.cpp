@@ -473,6 +473,13 @@ struct JackNetExtMaster : public JackNetMasterInterface {
     void DecodeTransportData()
     {}
 
+    // Port latency
+    void EncodeLatencyData()
+    {}
+
+    void DecodeLatencyData()
+    {}
+
 };
 
 struct JackNetExtSlave : public JackNetSlaveInterface, public JackRunnableInterface {
@@ -767,6 +774,13 @@ struct JackNetExtSlave : public JackNetSlaveInterface, public JackRunnableInterf
     {}
 
     void DecodeTransportData()
+    {}
+
+    // Port latency
+    void EncodeLatencyData()
+    {}
+
+    void DecodeLatencyData()
     {}
 
     bool Init()

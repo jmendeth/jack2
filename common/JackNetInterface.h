@@ -69,6 +69,10 @@ namespace Jack
             net_transport_data_t fSendTransportData;
             net_transport_data_t fReturnTransportData;
 
+            // latency
+            uint32_t* fSendLatencyData;
+            uint32_t* fReturnLatencyData;
+
             // network buffers
             char* fTxBuffer;
             char* fRxBuffer;
@@ -92,6 +96,10 @@ namespace Jack
             // transport
             virtual void EncodeTransportData() = 0;
             virtual void DecodeTransportData() = 0;
+
+            // latency
+            virtual void EncodeLatencyData() = 0;
+            virtual void DecodeLatencyData() = 0;
 
             // sync packet
             virtual void EncodeSyncPacket(int frames = -1) = 0;

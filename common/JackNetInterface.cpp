@@ -63,6 +63,8 @@ namespace Jack
         fNetMidiPlaybackBuffer = NULL;
         memset(&fSendTransportData, 0, sizeof(net_transport_data_t));
         memset(&fReturnTransportData, 0, sizeof(net_transport_data_t));
+        fSendLatencyData = NULL;
+        fReturnLatencyData = NULL;
         fPacketTimeOut = PACKET_TIMEOUT * NETWORK_DEFAULT_LATENCY;
     }
 
@@ -89,6 +91,8 @@ namespace Jack
         delete fNetAudioPlaybackBuffer;
         delete fNetMidiCaptureBuffer;
         delete fNetMidiPlaybackBuffer;
+        delete[] fSendLatencyData;
+        delete[] fReturnLatencyData;
     }
 
     int JackNetInterface::SetNetBufferSize()
@@ -149,6 +153,11 @@ namespace Jack
         // net audio/midi buffers'addresses
         fTxData = fTxBuffer + HEADER_SIZE;
         fRxData = fRxBuffer + HEADER_SIZE;
+
+        // port latency data
+        uint total = 2 * (fParams.fSendAudioChannels+fParams.fSendMidiChannels + fParams.fReturnAudioChannels+fParams.fReturnMidiChannels);
+        fSendLatencyData = new uint32_t[total]();
+        fReturnLatencyData = new uint32_t[total]();
 
         return true;
     }
@@ -575,6 +584,14 @@ namespace Jack
         // ...
         */
    
+        // port latency
+        EncodeLatencyData();
+        uint total = 2 * (fParams.fSendAudioChannels+fParams.fSendMidiChannels + fParams.fReturnAudioChannels+fParams.fReturnMidiChannels);
+        for (uint i = 0; i < total; i++)
+            fSendLatencyData[i] = htonl(fSendLatencyData[i]);
+        memcpy(sync_data, fSendLatencyData, sizeof(uint32_t) * total);
+        sync_data += sizeof(uint32_t) * total;
+
         // Write active ports list
         fTxHeader.fActivePorts = (fNetAudioPlaybackBuffer) ? fNetAudioPlaybackBuffer->ActivePortsToNetwork(sync_data) : 0;
         sync_data += fTxHeader.fActivePorts * sizeof(int);
@@ -602,6 +619,14 @@ namespace Jack
         // ...
         */
        
+        // port latency
+        uint total = 2 * (fParams.fSendAudioChannels+fParams.fSendMidiChannels + fParams.fReturnAudioChannels+fParams.fReturnMidiChannels);
+        memcpy(fReturnLatencyData, sync_data, sizeof(uint32_t) * total);
+        sync_data += sizeof(uint32_t) * total;
+        for (uint i = 0; i < total; i++)
+            fReturnLatencyData[i] = ntohl(fReturnLatencyData[i]);
+        DecodeLatencyData();
+
         packet_header_t* rx_head = reinterpret_cast<packet_header_t*>(fRxBuffer);
 
         // Read active ports list
@@ -984,6 +1009,14 @@ namespace Jack
         // ...
         */
 
+        // port latency
+        EncodeLatencyData();
+        uint total = 2 * (fParams.fSendAudioChannels+fParams.fSendMidiChannels + fParams.fReturnAudioChannels+fParams.fReturnMidiChannels);
+        for (uint i = 0; i < total; i++)
+            fReturnLatencyData[i] = htonl(fReturnLatencyData[i]);
+        memcpy(sync_data, fReturnLatencyData, sizeof(uint32_t) * total);
+        sync_data += sizeof(uint32_t) * total;
+
         // Write active ports list
         fTxHeader.fActivePorts = (fNetAudioCaptureBuffer) ? fNetAudioCaptureBuffer->ActivePortsToNetwork(sync_data) : 0;
         sync_data += fTxHeader.fActivePorts * sizeof(int);
@@ -1011,6 +1044,14 @@ namespace Jack
         // ...
         */
        
+        // port latency
+        uint total = 2 * (fParams.fSendAudioChannels+fParams.fSendMidiChannels + fParams.fReturnAudioChannels+fParams.fReturnMidiChannels);
+        memcpy(fSendLatencyData, sync_data, sizeof(uint32_t) * total);
+        sync_data += sizeof(uint32_t) * total;
+        for (uint i = 0; i < total; i++)
+            fSendLatencyData[i] = ntohl(fSendLatencyData[i]);
+        DecodeLatencyData();
+
         packet_header_t* rx_head = reinterpret_cast<packet_header_t*>(fRxBuffer);
 
         // Read active ports list
