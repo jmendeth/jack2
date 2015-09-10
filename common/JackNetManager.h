@@ -46,7 +46,6 @@ namespace Jack
             static int SetSampleRate(jack_nframes_t nframes, void* arg);
             static void SetTimebaseCallback(jack_transport_state_t state, jack_nframes_t nframes, jack_position_t* pos, int new_pos, void* arg);
             static void SetConnectCallback(jack_port_id_t a, jack_port_id_t b, int connect, void* arg);
-            static void LatencyCallback(jack_latency_callback_mode_t mode, void* arg);
 
             //jack client
             jack_client_t* fClient;
@@ -74,6 +73,15 @@ namespace Jack
             //transport
             void EncodeTransportData();
             void DecodeTransportData();
+
+            //port latency
+            jack_nframes_t fSendLatency;
+            jack_nframes_t fReturnLatency;
+            void DecodeLatencyData();
+            void EncodeLatencyData();
+            void SetPortLatency(bool& dirty, int& offset, jack_port_t* port, jack_latency_callback_mode_t mode, jack_nframes_t latency_constant);
+            void CollectPortLatency(int& offset, jack_port_t* port, jack_latency_callback_mode_t mode, jack_nframes_t latency_constant);
+            static void LatencyCallback(jack_latency_callback_mode_t mode, void* arg);
 
             int Process();
             void TimebaseCallback(jack_position_t* pos);

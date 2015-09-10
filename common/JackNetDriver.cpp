@@ -277,30 +277,6 @@ namespace Jack
         fNetTimeMon = NULL;
 #endif
     }
-    
-    void JackNetDriver::UpdateLatencies()
-    {
-        jack_latency_range_t input_range;
-        jack_latency_range_t output_range;
-        jack_latency_range_t monitor_range;
-     
-        for (int i = 0; i < fCaptureChannels; i++) {
-            input_range.max = input_range.min = float(fParams.fNetworkLatency * fEngineControl->fBufferSize) / 2.f;
-            fGraphManager->GetPort(fCapturePortList[i])->SetLatencyRange(JackCaptureLatency, &input_range);
-        }
-
-        for (int i = 0; i < fPlaybackChannels; i++) {
-            output_range.max = output_range.min = float(fParams.fNetworkLatency * fEngineControl->fBufferSize) / 2.f;
-            if (!fEngineControl->fSyncMode) {
-                output_range.max = output_range.min += fEngineControl->fBufferSize;
-            }
-            fGraphManager->GetPort(fPlaybackPortList[i])->SetLatencyRange(JackPlaybackLatency, &output_range);
-            if (fWithMonitorPorts) {
-                monitor_range.min = monitor_range.max = 0;
-                fGraphManager->GetPort(fMonitorPortList[i])->SetLatencyRange(JackCaptureLatency, &monitor_range);
-            }
-        }
-    }
 
 //jack ports and buffers--------------------------------------------------------------
     int JackNetDriver::AllocPorts()
@@ -383,7 +359,6 @@ namespace Jack
             jack_log("JackNetDriver::AllocPorts() fMidiPlaybackPortList[%d] midi_port_index = %ld fPortLatency = %ld", midi_port_index, port_index, port->GetLatency());
         }
 
-        UpdateLatencies();
         return 0;
     }
 
@@ -537,6 +512,69 @@ namespace Jack
             jack_info("Sending '%s'.", GetTransportState(fReturnTransportData.fState));
         }
         fLastTransportState = fReturnTransportData.fState;
+    }
+
+//port latency------------------------------------------------------------------------
+    inline void JackNetDriver::SetPortLatency(bool& dirty, int& offset, JackPort* port, jack_latency_callback_mode_t mode)
+    {
+        jack_latency_range_t old_range, new_range;
+        port->GetLatencyRange(mode, &old_range);
+        new_range.min = fSendLatencyData[offset++];
+        new_range.max = fSendLatencyData[offset++];
+
+        if (old_range.min != new_range.min || old_range.max != new_range.max) {
+            dirty = true;
+            port->SetLatencyRange(mode, &new_range);
+        }
+    }
+
+    inline void JackNetDriver::CollectPortLatency(int& offset, JackPort* port, jack_latency_callback_mode_t mode)
+    {
+        jack_latency_range_t range;
+        port->GetLatencyRange(mode, &range);
+        fReturnLatencyData[offset++] = range.min;
+        fReturnLatencyData[offset++] = range.max;
+    }
+
+    void JackNetDriver::DecodeLatencyData()
+    {
+        int i, offset = 0;
+        bool dirty = false;
+
+        // Set capture latency of send ports
+        for (i = 0; i < fParams.fSendAudioChannels; i++)
+            SetPortLatency(dirty, offset, fGraphManager->GetPort(fCapturePortList[i]), JackCaptureLatency);
+        for (i = 0; i < fParams.fSendMidiChannels; i++)
+            SetPortLatency(dirty, offset, fGraphManager->GetPort(fMidiCapturePortList[i]), JackCaptureLatency);
+
+        // Set playback latency of return ports
+        for (i = 0; i < fParams.fReturnAudioChannels; i++)
+            SetPortLatency(dirty, offset, fGraphManager->GetPort(fPlaybackPortList[i]), JackPlaybackLatency);
+        for (i = 0; i < fParams.fReturnMidiChannels; i++)
+            SetPortLatency(dirty, offset, fGraphManager->GetPort(fMidiPlaybackPortList[i]), JackPlaybackLatency);
+
+        // Some of our latencies changed? Let's recompute them
+        if (dirty) {
+            jack_info("Requesting recomputation, master have changed latencies");
+            fEngine->ComputeTotalLatencies();
+        }
+    }
+
+    void JackNetDriver::EncodeLatencyData()
+    {
+        int i, offset = 0;
+
+        // Collect playback latency of send ports
+        for (i = 0; i < fParams.fSendAudioChannels; i++)
+            CollectPortLatency(offset, fGraphManager->GetPort(fCapturePortList[i]), JackPlaybackLatency);
+        for (i = 0; i < fParams.fSendMidiChannels; i++)
+            CollectPortLatency(offset, fGraphManager->GetPort(fMidiCapturePortList[i]), JackPlaybackLatency);
+
+        // Collect capture latency of return ports
+        for (i = 0; i < fParams.fReturnAudioChannels; i++)
+            CollectPortLatency(offset, fGraphManager->GetPort(fPlaybackPortList[i]), JackCaptureLatency);
+        for (i = 0; i < fParams.fReturnMidiChannels; i++)
+            CollectPortLatency(offset, fGraphManager->GetPort(fMidiPlaybackPortList[i]), JackCaptureLatency);
     }
 
 //driver processes--------------------------------------------------------------------

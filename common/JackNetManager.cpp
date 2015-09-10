@@ -127,6 +127,11 @@ namespace Jack
             jack_error("Can't open a new JACK client");
             return false;
         }
+
+        //calculate latency constants
+        jack_nframes_t port_latency = jack_get_buffer_size(fClient);
+        fSendLatency = float(fParams.fNetworkLatency * port_latency) / 2.f;
+        fReturnLatency = fSendLatency + (fParams.fSlaveSyncMode ? 0 : port_latency);
         
         if (jack_set_process_callback(fClient, SetProcess, this) < 0) {
             goto fail;
@@ -249,7 +254,8 @@ namespace Jack
             if (fAudioPlaybackPorts[port_index]) {
                 jack_port_unregister(fClient, fAudioPlaybackPorts[port_index]);
             }
-        }
+        }//FIXME: why is midi send != audio send latency? (-> probably typo)
+         //FIXME: why port_latency = jack_client_get_buffer_size on master, and fParams.fPeriodSize on slave? (-> probably typo, should change it and move whole lines to constructor)
         for (port_index = 0; port_index < fParams.fSendMidiChannels; port_index++) {
             if (fMidiCapturePorts[port_index]) {
                 jack_port_unregister(fClient, fMidiCapturePorts[port_index]);
@@ -363,6 +369,76 @@ namespace Jack
         pos->beats_per_minute = fReturnTransportData.fPosition.beats_per_minute;
     }
 
+//port latency------------------------------------------------------------------------
+    inline void JackNetMaster::SetPortLatency(bool& dirty, int& offset, jack_port_t* port, jack_latency_callback_mode_t mode, jack_nframes_t latency_constant)
+    {
+        jack_latency_range_t old_range, new_range;
+        jack_port_get_latency_range(port, mode, &old_range);
+        new_range.min = fReturnLatencyData[offset++] + latency_constant;
+        new_range.max = fReturnLatencyData[offset++] + latency_constant;
+
+        if (old_range.min != new_range.min || old_range.max != new_range.max) {
+            dirty = true;
+            jack_port_set_latency_range(port, mode, &new_range);
+        }
+    }
+
+    inline void JackNetMaster::CollectPortLatency(int& offset, jack_port_t* port, jack_latency_callback_mode_t mode, jack_nframes_t latency_constant)
+    {
+        jack_latency_range_t range;
+        jack_port_get_latency_range(port, mode, &range);
+        fSendLatencyData[offset++] = range.min + latency_constant;
+        fSendLatencyData[offset++] = range.max + latency_constant;
+    }
+
+    void JackNetMaster::DecodeLatencyData()
+    {
+        int i, offset = 0;
+        bool dirty = false;
+
+        // Set playback latency of send ports
+        for (i = 0; i < fParams.fSendAudioChannels; i++)
+            SetPortLatency(dirty, offset, fAudioCapturePorts[i], JackPlaybackLatency, fSendLatency);
+        for (i = 0; i < fParams.fSendMidiChannels; i++)
+            SetPortLatency(dirty, offset, fMidiCapturePorts[i], JackPlaybackLatency, fSendLatency);
+
+        // Set capture latency of return ports
+        for (i = 0; i < fParams.fReturnAudioChannels; i++)
+            SetPortLatency(dirty, offset, fAudioPlaybackPorts[i], JackCaptureLatency, fReturnLatency);
+        for (i = 0; i < fParams.fReturnMidiChannels; i++)
+            SetPortLatency(dirty, offset, fMidiPlaybackPorts[i], JackCaptureLatency, fReturnLatency);
+
+        // Some of our latencies changed? Let's recompute them
+        if (dirty) {
+            jack_recompute_total_latencies(fClient);
+            jack_info("Requesting recomputation, slave latencies have changed");
+        }
+    }
+
+    void JackNetMaster::EncodeLatencyData()
+    {
+        int i, offset = 0;
+
+        // Collect capture latency of send ports
+        for (i = 0; i < fParams.fSendAudioChannels; i++)
+            CollectPortLatency(offset, fAudioCapturePorts[i], JackCaptureLatency, fSendLatency);
+        for (i = 0; i < fParams.fSendMidiChannels; i++)
+            CollectPortLatency(offset, fMidiCapturePorts[i], JackCaptureLatency, fSendLatency);
+
+        // Collect playback latency of return ports
+        for (i = 0; i < fParams.fReturnAudioChannels; i++)
+            CollectPortLatency(offset, fAudioPlaybackPorts[i], JackPlaybackLatency, fReturnLatency);
+        for (i = 0; i < fParams.fReturnMidiChannels; i++)
+            CollectPortLatency(offset, fMidiPlaybackPorts[i], JackPlaybackLatency, fReturnLatency);
+    }
+
+    void JackNetMaster::LatencyCallback(jack_latency_callback_mode_t mode, void* arg)
+    {
+        // Not necessary to do anything, latencies are already set in DecodeLatencyData()
+        // FIXME: this is a hack, the ideal way is to only get and set latencies in this
+        // callback, and use FIFOs to pass them to Decode/EncodeLatencyData.
+    }
+
 //sync--------------------------------------------------------------------------------
 
     bool JackNetMaster::IsSlaveReadyToRoll()
@@ -388,41 +464,6 @@ namespace Jack
             obj->Exit();
         }
         return 0;
-    }
-    
-    void JackNetMaster::LatencyCallback(jack_latency_callback_mode_t mode, void* arg)
-    {
-        JackNetMaster* obj = static_cast<JackNetMaster*>(arg);
-        jack_nframes_t port_latency = jack_get_buffer_size(obj->fClient);
-        jack_latency_range_t range;
-        
-        //audio
-        for (int i = 0; i < obj->fParams.fSendAudioChannels; i++) {
-            //port latency
-            range.min = range.max = float(obj->fParams.fNetworkLatency * port_latency) / 2.f;
-            jack_port_set_latency_range(obj->fAudioCapturePorts[i], JackPlaybackLatency, &range);
-        }
-        
-        //audio
-        for (int i = 0; i < obj->fParams.fReturnAudioChannels; i++) {
-            //port latency
-            range.min = range.max = float(obj->fParams.fNetworkLatency * port_latency) / 2.f + ((obj->fParams.fSlaveSyncMode) ? 0 : port_latency);
-            jack_port_set_latency_range(obj->fAudioPlaybackPorts[i], JackCaptureLatency, &range);
-        }
-        
-        //midi
-        for (int i = 0; i < obj->fParams.fSendMidiChannels; i++) {
-            //port latency
-            range.min = range.max = float(obj->fParams.fNetworkLatency * port_latency) / 2.f;
-            jack_port_set_latency_range(obj->fMidiCapturePorts[i], JackPlaybackLatency, &range);
-        }
-    
-        //midi
-        for (int i = 0; i < obj->fParams.fReturnMidiChannels; i++) {
-            //port latency
-            range.min = range.max = obj->fParams.fNetworkLatency * port_latency + ((obj->fParams.fSlaveSyncMode) ? 0 : port_latency);
-            jack_port_set_latency_range(obj->fMidiPlaybackPorts[i], JackCaptureLatency, &range);
-        }
     }
 
 //process-----------------------------------------------------------------------------

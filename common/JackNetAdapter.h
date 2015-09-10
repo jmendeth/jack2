@@ -55,6 +55,10 @@ namespace Jack
             void EncodeTransportData();
             void DecodeTransportData();
 
+            //port latency
+            void DecodeLatencyData();
+            void EncodeLatencyData();
+
         public:
 
             JackNetAdapter(jack_client_t* jack_client, jack_nframes_t buffer_size, jack_nframes_t sample_rate, const JSList* params);

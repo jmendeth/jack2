@@ -69,12 +69,16 @@ namespace Jack
             void EncodeTransportData();
             void DecodeTransportData();
 
+            //port latency
+            void SetPortLatency(bool& dirty, int& offset, JackPort* port, jack_latency_callback_mode_t mode);
+            void CollectPortLatency(int& offset, JackPort* port, jack_latency_callback_mode_t mode);
+            void DecodeLatencyData();
+            void EncodeLatencyData();
+
             JackMidiBuffer* GetMidiInputBuffer(int port_index);
             JackMidiBuffer* GetMidiOutputBuffer(int port_index);
 
             void SaveConnections(int alias);
-            
-            void UpdateLatencies();
 
         public:
 

@@ -347,6 +347,19 @@ namespace Jack
         fLastTransportState = fReturnTransportData.fState;
     }
 
+//port latency------------------------------------------------------------------------
+    void JackNetAdapter::DecodeLatencyData()
+    {
+        //TODO
+    }
+
+    void JackNetAdapter::EncodeLatencyData()
+    {
+        uint total = 2 * (fParams.fSendAudioChannels+fParams.fSendMidiChannels + fParams.fReturnAudioChannels+fParams.fReturnMidiChannels);
+        memset(fReturnLatencyData, 0x00, sizeof(uint32_t) * total);
+        //TODO
+    }
+
 //read/write operations---------------------------------------------------------------
     int JackNetAdapter::Read()
     {
